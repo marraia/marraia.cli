@@ -12,6 +12,8 @@ using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Threading.Tasks;
 
+using System.Linq;
+
 namespace marraia
 {
     class Program
@@ -61,7 +63,7 @@ namespace marraia
                         return;
                     }
 
-                    CreateProject(name, command.Url);
+                    CreateProject(name, command.Description, command.Url);
                 });
 
                 cmd.Add(repositoryCommad);
@@ -92,7 +94,7 @@ namespace marraia
             return cmd;
         }
 
-        private static void CreateProject(string project, string url)
+        private static void CreateProject(string project, string nameRepository, string url)
         {
             using (var powershell = PowerShell.Create())
             {
@@ -103,9 +105,9 @@ namespace marraia
                 var results = powershell.Invoke();
             }
 
-            Console.WriteLine($"Projeto {project} criado com sucesso!");
-
+            ChangeFileNameForProject($"c:\\_test\\{project}", project);
             ChangeContentFileNameForProject($"c:\\_test\\{project}", project);
+            DeletePathOrigem($"c:\\_test\\{project}", project, nameRepository);
         }
 
         private static async Task<List<Projects>> GetProjectsForGitHub()
@@ -118,7 +120,8 @@ namespace marraia
             client.DefaultRequestHeaders.UserAgent.Add(userAgent);
 
             var response = await client
-                                    .GetAsync("https://api.github.com/users/marraia/repos");
+                                    .GetAsync("https://api.github.com/users/marraia/repos")
+                                    .ConfigureAwait(false);
 
             if (response.IsSuccessStatusCode)
             {
@@ -144,17 +147,37 @@ namespace marraia
 
         private static void ChangeFileNameForProject(string path, string project)
         {
-            var files = Directory.GetFiles(path, "AcademiaDemo");
+            var files = Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories);
+
             foreach (var item in files)
             {
+                if (item.Contains(".git")
+                        || item.Contains(".github")
+                        || item.Contains(".vs"))
+                    continue;
+
+                Console.WriteLine(item);
                 var fileInfo = new FileInfo(item);
-                fileInfo.MoveTo($"{path}{project}");
+                var newDirectory = fileInfo.DirectoryName.Replace("AcademiaDemo", project);
+                var newfile = fileInfo.Name.Replace("AcademiaDemo", project);
+
+                if (!Directory.Exists(newDirectory))
+                {
+                    var destinationDirectory = new DirectoryInfo(newDirectory);
+                    destinationDirectory.Create();
+                }
+
+                fileInfo.MoveTo($"{newDirectory}\\{newfile}");
+                Console.WriteLine($"{newDirectory}\\{newfile}");
             }
         }
 
         private static void ChangeContentFileNameForProject(string path, string project)
         {
-            var files = Directory.EnumerateFiles(path, "*.cs*", SearchOption.AllDirectories);
+            string[] extensions = { ".cs", ".csproj", ".sln" };
+
+            var files = Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories)
+                                   .Where(extensionFile => extensions.Any(ext => ext == Path.GetExtension(extensionFile)));
 
             foreach (var item in files)
             {
@@ -162,6 +185,19 @@ namespace marraia
                 var contentFile = File.ReadAllText(item);
                 contentFile = contentFile.Replace("AcademiaDemo", project);
                 File.WriteAllText(item, contentFile);
+            }
+        }
+        private static void DeletePathOrigem(string path, string project, string nameRepository)
+        {
+            try
+            {
+                var dir = new DirectoryInfo($"{path}\\{nameRepository}");
+                dir.Attributes = FileAttributes.Normal;
+                dir.Delete(true);
+            }
+            catch(UnauthorizedAccessException)
+            {
+                Console.WriteLine($"Processo de criação do seu projeto {project} realizado com sucesso!");
             }
         }
     }
